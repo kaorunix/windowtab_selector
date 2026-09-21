@@ -15,7 +15,8 @@ import os
 import subprocess
 import sys
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "window_history.txt")
+from wt_config import LOG_FILE
+
 LIMIT = 10
 
 CHROMIUM_APPS = {
