@@ -22,22 +22,24 @@ Cowork と Claude Computer Use を組み合わせた、複数ウィンドウ管�
 ### 1. ファイルの準備
 
 ```bash
+cd ~/private/Projects/windowtab_selector
+
 # 実行権限を付与
-chmod +x ~/window_monitor.py ~/window_selector_cowork.py
+chmod +x window_monitor.py window_selector_cowork.py
 ```
 
 ### 2. ウィンドウモニター開始
 
 ターミナルで実行（そのまま開いておく）：
 ```bash
-python3 ~/window_monitor.py
+python3 ~/private/Projects/windowtab_selector/window_monitor.py
 ```
 
 ### 3. Cowork でテスト
 
 Claude Desktop → Cowork タブ：
 ```bash
-python3 ~/window_selector_cowork.py
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py
 ```
 
 ---
@@ -48,7 +50,7 @@ python3 ~/window_selector_cowork.py
 
 ```bash
 # Cowork で実行
-python3 ~/window_selector_cowork.py
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py
 
 # 表示された一覧から「2」と入力
 # → Excel が自動で開く
@@ -58,7 +60,7 @@ python3 ~/window_selector_cowork.py
 
 ```bash
 # Cowork で実行
-python3 ~/window_selector_cowork.py 3
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py 3
 
 # 自動的に3番のアプリを開く
 ```
@@ -116,7 +118,7 @@ python3 ~/window_selector_cowork.py 3
 2. または音声で同じコマンド
 
 【分析】
-夜に ~/window_history.txt を確認
+夜に ~/private/Projects/windowtab_selector/window_history.txt を確認
 → 「どのアプリを何時に使ってたか」が全て記録
 ```
 
@@ -146,39 +148,22 @@ python3 ~/window_selector_cowork.py 3
 
 PC 起動時に自動でウィンドウ記録を開始：
 
+このリポジトリには `org.corlibrifw.windowtabmonitor.plist` が用意されており、
+`ProgramArguments` は `~/private/Projects/windowtab_selector/window_monitor.py`
+を絶対パスで指しています。`~/Library/LaunchAgents/` にコピーして登録します。
+
 ```bash
-cat > ~/Library/LaunchAgents/com.fideo.windowmonitor.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.fideo.windowmonitor</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/bin/python3</string>
-        <string>/Users/$(whoami)/window_monitor.py</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/windowmonitor.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/windowmonitor.err</string>
-</dict>
-</plist>
-EOF
+cp ~/private/Projects/windowtab_selector/org.corlibrifw.windowtabmonitor.plist \
+   ~/Library/LaunchAgents/org.corlibrifw.windowtabmonitor.plist
 
 # 登録
-launchctl load ~/Library/LaunchAgents/com.fideo.windowmonitor.plist
+launchctl load ~/Library/LaunchAgents/org.corlibrifw.windowtabmonitor.plist
 
 # 確認
 launchctl list | grep windowmonitor
 
 # 停止
-launchctl unload ~/Library/LaunchAgents/com.fideo.windowmonitor.plist
+launchctl unload ~/Library/LaunchAgents/org.corlibrifw.windowtabmonitor.plist
 ```
 
 ---
@@ -192,14 +177,14 @@ launchctl unload ~/Library/LaunchAgents/com.fideo.windowmonitor.plist
 ps aux | grep window_monitor
 
 # 実行されていなければ手動開始
-python3 ~/window_monitor.py
+python3 ~/private/Projects/windowtab_selector/window_monitor.py
 ```
 
 ### エラー：Cowork から実行できない
 
 ```bash
 # ターミナルで直接テスト
-python3 ~/window_selector_cowork.py 1
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py 1
 
 # エラーメッセージを確認してから Cowork で再試行
 ```
@@ -217,16 +202,18 @@ python3 ~/window_selector_cowork.py 1
 ## ファイル構成
 
 ```
-~/
-├── window_monitor.py           ← ウィンドウログ記録（バックグラウンド動作）
-├── window_selector_cowork.py   ← Cowork インターフェース
-├── window_history.txt          ← ウィンドウログ（自動生成・毎日増加）
-├── README.md                   ← このファイル
-├── QUICKSTART.md               ← 5分クイックガイド
-└── SETUP_GUIDE.md              ← 詳細セットアップガイド
+~/private/Projects/windowtab_selector/
+├── window_monitor.py                      ← ウィンドウログ記録（バックグラウンド動作）
+├── window_selector_cowork.py              ← Cowork インターフェース
+├── wt_config.py                           ← LOG_FILE 等の共有設定
+├── window_history.txt                     ← ウィンドウログ（自動生成・毎日増加）
+├── org.corlibrifw.windowtabmonitor.plist  ← 自動起動設定（オプション、コピーして使用）
+├── README.md                              ← このファイル
+├── QUICKSTART.md                          ← 5分クイックガイド
+└── SETUP_GUIDE.md                         ← 詳細セットアップガイド
 
 ~/Library/LaunchAgents/
-└── com.fideo.windowmonitor.plist  ← 自動起動設定（オプション）
+└── org.corlibrifw.windowtabmonitor.plist  ← 上記をコピーして登録したもの
 ```
 
 ---
@@ -240,7 +227,7 @@ python3 ~/window_selector_cowork.py 1
 You: 「最近使ったウィンドウを表示してください」
 
 Claude: 
-python3 ~/window_selector_cowork.py
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py
 ↓
 【ウィンドウ履歴 - 最新10件】
  1. Chrome | Gmail - Inbox
@@ -251,7 +238,7 @@ python3 ~/window_selector_cowork.py
 You: 「2番を開いてください」
 
 Claude:
-python3 ~/window_selector_cowork.py 2
+python3 ~/private/Projects/windowtab_selector/window_selector_cowork.py 2
 ↓
 ✓ Excel をアクティブにしました
 ```
@@ -293,7 +280,7 @@ python3 ~/window_selector_cowork.py 2
 2. **ログファイルの定期クリーンアップ**
    ```bash
    # 古いログをクリア（月1回推奨）
-   > ~/window_history.txt
+   > ~/private/Projects/windowtab_selector/window_history.txt
    ```
 
 3. **アプリ名は Spotlight での表示名を使用**

@@ -19,8 +19,8 @@ import sys
 import time
 from datetime import datetime
 
-# ログファイルのパス（スクリプトと同じディレクトリに保存）
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "window_history.txt")
+from wt_config import LOG_FILE
+
 INTERVAL = 1.0  # 秒。短くすると反応は良くなるが osascript の呼び出しが増える
 
 APPLESCRIPT = r'''
@@ -35,10 +35,16 @@ end tell
 if frontApp is in {"Google Chrome", "Google Chrome Canary", "Chromium", "Brave Browser", "Microsoft Edge", "Arc"} then
     try
         tell application frontApp
-            if (count of windows) > 0 then
-                set theTitle to title of active tab of front window
-                set theURL to URL of active tab of front window
-            end if
+            -- frontApp は変数なので、コンパイル時に用語(dictionary)を
+            -- 解決できるよう Chrome の用語を明示的に借用する。
+            -- これがないと "title of active tab of front window" が
+            -- 構文エラー(-2741)になる。
+            using terms from application "Google Chrome"
+                if (count of windows) > 0 then
+                    set theTitle to title of active tab of front window
+                    set theURL to URL of active tab of front window
+                end if
+            end using terms from
         end tell
     end try
 else if frontApp is "Safari" then
@@ -78,10 +84,12 @@ def get_active():
             ["osascript", "-e", APPLESCRIPT],
             capture_output=True, text=True, timeout=5,
         )
-    except Exception:
+    except Exception as e:
+        print(f"[warn] osascript の実行に失敗しました: {e}", file=sys.stderr)
         return None
 
     if r.returncode != 0:
+        print(f"[warn] osascript がエラーを返しました (rc={r.returncode}): {r.stderr.strip()}", file=sys.stderr)
         return None
 
     parts = r.stdout.rstrip("\n").split("\t")
