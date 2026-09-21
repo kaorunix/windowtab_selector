@@ -1,165 +1,237 @@
 #!/usr/bin/env python3
 """
-macOS Window Selector for Cowork
-ウィンドウ履歴から最新N件を表示し、ユーザーが選択したウィンドウを開く
-Cowork で使用することを想定
+macOS Window Selector (ブラウザのタブ対応版)
+
+~/window_history.txt から最近使ったウィンドウ / ブラウザタブを
+新しい順に重複なしで並べ、番号で選ぶと そこへ切り替える。
+
+使い方:
+    python3 window_selector_cowork.py        対話型
+    python3 window_selector_cowork.py 3      一覧を出して 3 番へ切り替え
+    python3 window_selector_cowork.py -l     一覧だけ表示して終了
 """
 
-import subprocess
 import os
+import subprocess
 import sys
-from datetime import datetime
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "window_history.txt")
+LIMIT = 10
 
-def read_window_history(limit=10):
+CHROMIUM_APPS = {
+    "Google Chrome",
+    "Google Chrome Canary",
+    "Chromium",
+    "Brave Browser",
+    "Microsoft Edge",
+    "Arc",
+}
+
+# Chrome 系: URL が一致するタブを探してアクティブにする
+CHROMIUM_SCRIPT = r'''
+on run argv
+    set appName to item 1 of argv
+    set targetURL to item 2 of argv
+    tell application appName
+        activate
+        repeat with w in windows
+            set i to 1
+            repeat with t in tabs of w
+                if (URL of t) is targetURL then
+                    set active tab index of w to i
+                    set index of w to 1
+                    return "ok"
+                end if
+                set i to i + 1
+            end repeat
+        end repeat
+    end tell
+    return "notfound"
+end run
+'''
+
+SAFARI_SCRIPT = r'''
+on run argv
+    set targetURL to item 1 of argv
+    tell application "Safari"
+        activate
+        repeat with w in windows
+            repeat with t in tabs of w
+                if (URL of t) is targetURL then
+                    set current tab of w to t
+                    set index of w to 1
+                    return "ok"
+                end if
+            end repeat
+        end repeat
+    end tell
+    return "notfound"
+end run
+'''
+
+
+def parse_line(line):
+    """1行を (日時, アプリ, タイトル, URL) に分解。
+
+    新形式(タブ区切り)と旧形式("|"区切り)の両方を受け付ける。
     """
-    ウィンドウ履歴ファイルから最新N件を読み込む
-    """
+    line = line.rstrip("\n")
+    if not line.strip():
+        return None
+
+    if "\t" in line:
+        parts = line.split("\t")
+    elif "|" in line:
+        # 旧形式: 日時 | アプリ | タイトル  (タイトル内の | は残る)
+        parts = [p.strip() for p in line.split("|", 2)]
+    else:
+        return None
+
+    while len(parts) < 4:
+        parts.append("")
+
+    ts, app, title, url = (p.strip() for p in parts[:4])
+    if not app or app.startswith("==="):
+        return None
+    return ts, app, title, url
+
+
+def read_history(limit=LIMIT):
+    """新しい順・重複なしで最大 limit 件返す。"""
     if not os.path.exists(LOG_FILE):
-        print(f"エラー: {LOG_FILE} が見つかりません")
-        print("window_monitor.py を先に実行してください")
-        return []
-    
-    try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        
-        # ヘッダーと空行をスキップしながら逆順で読む
-        entries = []
-        for line in reversed(lines):
-            line = line.strip()
-            if line and "|" in line and not line.startswith("===") and not line.startswith("開始"):
-                entries.append(line)
-                if len(entries) >= limit:
-                    break
-        
-        return list(reversed(entries))
-    
-    except Exception as e:
-        print(f"ファイル読み込みエラー: {e}")
+        print(f"ログが見つかりません: {LOG_FILE}")
+        print("window_monitor.py を起動してください")
         return []
 
-def parse_entry(entry):
-    """
-    ログエントリをパース
-    フォーマット: "YYYY-MM-DD HH:MM:SS | AppName | WindowTitle"
-    """
-    try:
-        parts = entry.split("|")
-        if len(parts) >= 3:
-            timestamp = parts[0].strip()
-            app_name = parts[1].strip()
-            window_title = parts[2].strip()
-            return timestamp, app_name, window_title
-    except:
-        pass
-    return None, None, None
+    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
 
-def display_history(entries):
-    """
-    ウィンドウ履歴を表示
-    """
-    print("\n" + "="*80)
-    print("【ウィンドウ履歴 - 最新10件】")
-    print("="*80)
-    
+    seen = set()
+    entries = []
+    for line in reversed(lines):          # 新しい行から見る
+        rec = parse_line(line)
+        if not rec:
+            continue
+        ts, app, title, url = rec
+        key = (app, title, url)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append(rec)
+        if len(entries) >= limit:
+            break
+    return entries
+
+
+def shorten(s, n):
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def show(entries):
     if not entries:
-        print("ウィンドウ履歴が記録されていません")
-        print("window_monitor.py を先に実行してください")
-        print("="*80 + "\n")
-        return False
-    
-    for i, entry in enumerate(entries, 1):
-        timestamp, app_name, window_title = parse_entry(entry)
-        if timestamp and app_name:
-            # ウィンドウタイトルが長い場合は省略
-            if len(window_title) > 40:
-                window_title = window_title[:37] + "..."
-            print(f"{i:2d}. [{timestamp}] {app_name:15s} | {window_title}")
-    
-    print("="*80 + "\n")
-    return True
+        print("履歴がまだありません")
+        return
+    print()
+    print("=" * 78)
+    print("【最近のウィンドウ / タブ】")
+    print("=" * 78)
+    for i, (ts, app, title, url) in enumerate(entries, 1):
+        mark = "🌐" if url else "  "
+        print(f"{i:2d}. {mark} {shorten(app, 14):14s} {shorten(title, 44)}")
+        if url:
+            print(f"        {shorten(url, 66)}")
+    print("=" * 78)
+    print()
 
-def activate_app(app_name):
-    """
-    macOS でアプリケーションをアクティブにする
-    """
+
+def run_osascript(script, args):
     try:
-        script = f'''
-        tell application "{app_name}"
-            activate
-        end tell
-        '''
-        subprocess.run(['osascript', '-e', script], timeout=5, check=True)
+        r = subprocess.run(
+            ["osascript", "-e", script] + args,
+            capture_output=True, text=True, timeout=15,
+        )
+        return r.returncode == 0 and "ok" in r.stdout
+    except Exception as e:
+        print(f"切り替えに失敗しました: {e}")
+        return False
+
+
+def activate_app(app):
+    script = f'tell application "{app}" to activate'
+    try:
+        subprocess.run(["osascript", "-e", script], timeout=10, check=True)
         return True
     except Exception as e:
-        print(f"エラー: {app_name} を開けませんでした - {e}")
+        print(f"{app} を前面にできませんでした: {e}")
         return False
 
+
+def switch_to(entry):
+    ts, app, title, url = entry
+
+    if url and app in CHROMIUM_APPS:
+        if run_osascript(CHROMIUM_SCRIPT, [app, url]):
+            print(f"→ {app}: {title}")
+            return True
+        print("そのタブは見つかりませんでした（閉じた可能性があります）")
+        return activate_app(app)
+
+    if url and app == "Safari":
+        if run_osascript(SAFARI_SCRIPT, [url]):
+            print(f"→ Safari: {title}")
+            return True
+        print("そのタブは見つかりませんでした（閉じた可能性があります）")
+        return activate_app(app)
+
+    if activate_app(app):
+        print(f"→ {app}")
+        return True
+    return False
+
+
 def main():
-    """
-    メイン処理
-    使用方法:
-      python3 window_selector_cowork.py           # 対話型
-      python3 window_selector_cowork.py 3         # 自動実行モード（3番を開く）
-    """
-    
-    # ウィンドウ履歴を読み込み
-    entries = read_window_history(limit=10)
-    
-    # 履歴を表示
-    if not display_history(entries):
+    args = sys.argv[1:]
+
+    entries = read_history()
+    if not entries:
         sys.exit(1)
-    
-    # コマンドライン引数がある場合は自動実行
-    if len(sys.argv) > 1:
+
+    show(entries)
+
+    if args and args[0] in ("-l", "--list"):
+        return
+
+    if args:
         try:
-            num = int(sys.argv[1])
-            if 1 <= num <= len(entries):
-                timestamp, app_name, window_title = parse_entry(entries[num - 1])
-                if app_name:
-                    print(f"開いています: {app_name} - {window_title}")
-                    if activate_app(app_name):
-                        print(f"✓ {app_name} をアクティブにしました")
-                        sys.exit(0)
-                    else:
-                        print(f"✗ {app_name} をアクティブにできませんでした")
-            else:
-                print(f"エラー: 1 から {len(entries)} の番号を入力してください")
-                sys.exit(1)
+            n = int(args[0])
         except ValueError:
-            print(f"エラー: 有効な番号を入力してください")
+            print("番号を指定してください")
             sys.exit(1)
-    else:
-        # 対話型モード
-        while True:
-            try:
-                user_input = input("開くウィンドウの番号を入力してください（1-10）、または 'quit' で終了: ").strip()
-                
-                if user_input.lower() == 'quit':
-                    print("終了します")
-                    break
-                
-                try:
-                    num = int(user_input)
-                    if 1 <= num <= len(entries):
-                        timestamp, app_name, window_title = parse_entry(entries[num - 1])
-                        if app_name:
-                            print(f"\n開いています: {app_name} - {window_title}")
-                            if activate_app(app_name):
-                                print(f"✓ {app_name} をアクティブにしました\n")
-                                sys.exit(0)
-                            else:
-                                print(f"✗ {app_name} をアクティブにできませんでした\n")
-                    else:
-                        print(f"1 から {len(entries)} の番号を入力してください\n")
-                except ValueError:
-                    print("有効な番号を入力してください\n")
-            
-            except KeyboardInterrupt:
-                print("\n\n終了します")
-                break
+        if not (1 <= n <= len(entries)):
+            print(f"1 から {len(entries)} の間で指定してください")
+            sys.exit(1)
+        switch_to(entries[n - 1])
+        return
+
+    while True:
+        try:
+            s = input(f"番号を入力 (1-{len(entries)}, q で終了): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if s.lower() in ("q", "quit", "exit", ""):
+            return
+        try:
+            n = int(s)
+        except ValueError:
+            print("数字を入れてください")
+            continue
+        if not (1 <= n <= len(entries)):
+            print(f"1 から {len(entries)} の間で指定してください")
+            continue
+        switch_to(entries[n - 1])
+        return
+
 
 if __name__ == "__main__":
     main()
